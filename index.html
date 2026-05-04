@@ -1,13 +1,482 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Foresight Grid: a strategic foresight judgment game for family offices and executive cohorts." />
-    <title>Foresight Grid</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signal Detection Game</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        .fade-in { animation: fadeIn 0.5s ease-in-out; }
+        .slide-in { animation: slideIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Custom range slider styling for Light Mode */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 24px;
+            width: 24px;
+            border-radius: 50%;
+            background: #ffffff;
+            border: 3px solid #3b82f6;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            cursor: pointer;
+            margin-top: -8px;
+            transition: transform 0.1s;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 8px;
+            cursor: pointer;
+            background: #e2e8f0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans selection:bg-blue-200">
+
+    <!-- Subtle background pattern -->
+    <div class="fixed inset-0 z-[-1] opacity-[0.03] pointer-events-none" style="background-image: radial-gradient(#000 1px, transparent 1px); background-size: 24px 24px;"></div>
+
+    <div class="min-h-screen p-4 md:p-8 flex items-center justify-center">
+        <div id="app" class="w-full max-w-3xl">
+            <!-- App content will be injected here by JavaScript -->
+        </div>
+    </div>
+
+    <script>
+        const FALLBACK_IMG = "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&w=800&q=80";
+        
+        // --- GAME DATA ---
+        const DOMAINS = ['Tech', 'Policy', 'Social', 'Economic', 'Environmental'];
+        const STAGES = ['Nascent', 'Emerging', 'Consolidating', 'Established'];
+        const IMPACTS = ['Low', 'Medium', 'High'];
+
+        const SIGNALS = [
+            {
+                id: 1, 
+                image: "https://images.unsplash.com/photo-1621416894569-0f39ed31d247?auto=format&fit=crop&w=800&q=80",
+                text: "Philippines central bank approves stablecoin settlement for cross-border payments",
+                expert: { domain: "Economic", stage: "Emerging", impact: "High", reasoning: "Regulatory arbitrage signal; watch for capital control spillover. Indicates institutional acceptance of parallel financial rails.", ambiguity: "Is this regulatory innovation or a response to financial instability?" }
+            },
+            {
+                id: 2, 
+                image: "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=800&q=80",
+                text: "Gen-Z political engagement drops 40% in Western democracies, rises 60% in TikTok activism",
+                expert: { domain: "Social", stage: "Consolidating", impact: "High", reasoning: "Institutional legitimacy signal; traditional channels losing youth. The medium of civic participation is fundamentally shifting.", ambiguity: "Democratic erosion or just a new measurement model?" }
+            },
+            {
+                id: 3, 
+                image: "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=800&q=80",
+                text: "Corporate AI spending plateaus while open-source model adoption accelerates 3x",
+                expert: { domain: "Tech", stage: "Emerging", impact: "Medium", reasoning: "Power redistribution signal; watch enterprise lock-in dynamics. Suggests the value layer is moving from models to local applications.", ambiguity: "Temporary market correction or structural commodity shift?" }
+            },
+            {
+                id: 4, 
+                image: "https://images.unsplash.com/photo-1573804633927-bfcbcd909acd?auto=format&fit=crop&w=800&q=80",
+                text: "Major European city quietly phases out smart-city sensor network due to maintenance costs",
+                expert: { domain: "Policy", stage: "Nascent", impact: "Medium", reasoning: "Peak-hype correction signal. Highlights the hidden physical debt of digital infrastructure deployments.", ambiguity: "Local budget issue or the beginning of a broader tech-backlash?" }
+            },
+            {
+                id: 5, 
+                image: "https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=800&q=80",
+                text: "Insurance premiums in coastal regions decouple from property values, tying strictly to elevation data",
+                expert: { domain: "Environmental", stage: "Established", impact: "High", reasoning: "Market internalization of climate risk. The financial system is pricing in physical reality faster than regulatory zoning.", ambiguity: "Will this trigger a sudden localized real estate collapse or a slow migration?" }
+            }
+        ];
+
+        // --- APP STATE ---
+        let state = {
+            view: 'welcome', 
+            currentIndex: 0,
+            history: [],
+            selections: { domain: '', stage: '', impact: '', confidence: 50 }
+        };
+
+        // --- HELPER LOGIC ---
+        function calculateScores() {
+            const expert = SIGNALS[state.currentIndex].expert;
+            const user = state.selections;
+            let alignment = 0;
+            
+            if (user.domain === expert.domain) alignment += 40;
+            
+            const stageDiff = Math.abs(STAGES.indexOf(user.stage) - STAGES.indexOf(expert.stage));
+            if (stageDiff === 0) alignment += 30; else if (stageDiff === 1) alignment += 15;
+
+            const impactDiff = Math.abs(IMPACTS.indexOf(user.impact) - IMPACTS.indexOf(expert.impact));
+            if (impactDiff === 0) alignment += 30; else if (impactDiff === 1) alignment += 15;
+
+            const gap = Math.abs(alignment - user.confidence);
+            const calibration = 100 - gap;
+
+            return { alignment, calibration };
+        }
+
+        // --- STATE MODIFIERS ---
+        function setView(view) {
+            state.view = view;
+            render();
+        }
+
+        function startGame() {
+            state.currentIndex = 0;
+            state.history = [];
+            state.selections = { domain: '', stage: '', impact: '', confidence: 50 };
+            setView('playing');
+        }
+
+        function selectOption(category, value) {
+            state.selections[category] = value;
+            render(); 
+        }
+
+        function updateConfidence(val) {
+            state.selections.confidence = parseInt(val);
+            document.getElementById('confidence-val').innerText = val + '%';
+        }
+
+        function submitEvaluation() {
+            const scores = calculateScores();
+            state.history.push({
+                signalId: SIGNALS[state.currentIndex].id,
+                userSelections: { ...state.selections },
+                alignment: scores.alignment,
+                calibration: scores.calibration
+            });
+            setView('feedback');
+        }
+
+        function nextSignal() {
+            if (state.currentIndex < SIGNALS.length - 1) {
+                state.currentIndex++;
+                state.selections = { domain: '', stage: '', impact: '', confidence: 50 };
+                setView('playing');
+            } else {
+                setView('results');
+            }
+        }
+
+        // --- RENDERERS ---
+        const appDiv = document.getElementById('app');
+
+        function render() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (state.view === 'welcome') renderWelcome();
+            else if (state.view === 'playing') renderPlaying();
+            else if (state.view === 'feedback') renderFeedback();
+            else if (state.view === 'results') renderResults();
+        }
+
+        function renderWelcome() {
+            appDiv.innerHTML = `
+                <div class="flex flex-col items-center justify-center min-h-[600px] text-center space-y-8 fade-in bg-white p-10 rounded-3xl shadow-xl border border-slate-100 relative overflow-hidden">
+                    
+                    <!-- Decorative Graphic -->
+                    <div class="absolute top-0 left-0 w-full h-48 bg-gradient-to-br from-blue-400 via-indigo-400 to-purple-400 opacity-20 blur-3xl rounded-full translate-y-[-50%]"></div>
+
+                    <div class="bg-gradient-to-br from-blue-500 to-indigo-600 p-5 rounded-2xl shadow-lg shadow-blue-500/30 text-white z-10">
+                        <i class="ph ph-radar text-6xl"></i>
+                    </div>
+                    
+                    <div class="z-10 space-y-4">
+                        <h1 class="text-4xl md:text-5xl font-black text-slate-900 tracking-tight">Signal Detection</h1>
+                        <p class="text-lg text-slate-600 max-w-md mx-auto leading-relaxed">
+                            Develop the strategic foresight to see what others miss. Classify weak signals, assess their impact, and calibrate your judgment.
+                        </p>
+                    </div>
+
+                    <div class="pt-4 z-10 w-full max-w-xs">
+                        <button onclick="startGame()" class="w-full flex items-center justify-center px-8 py-4 bg-slate-900 hover:bg-blue-600 text-white font-bold rounded-xl transition-all duration-300 shadow-xl shadow-slate-900/20 hover:shadow-blue-600/30 active:scale-95 text-lg">
+                            Start Briefing <i class="ph ph-arrow-right ml-2 text-xl"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPlaying() {
+            const signal = SIGNALS[state.currentIndex];
+            const isComplete = state.selections.domain && state.selections.stage && state.selections.impact;
+            
+            let dots = '';
+            for(let i=0; i<SIGNALS.length; i++) {
+                let colorClass = i === state.currentIndex ? 'bg-blue-500 w-6' : i < state.currentIndex ? 'bg-indigo-200 w-2' : 'bg-slate-200 w-2';
+                dots += `<div class="h-2 rounded-full transition-all duration-300 ${colorClass}"></div>`;
+            }
+
+            appDiv.innerHTML = `
+                <div class="w-full space-y-6 slide-in">
+                    
+                    <!-- Header -->
+                    <div class="flex justify-between items-center text-sm font-bold text-slate-400 uppercase tracking-wider px-2">
+                        <span>Briefing ${state.currentIndex + 1} / ${SIGNALS.length}</span>
+                        <div class="flex space-x-1.5">${dots}</div>
+                    </div>
+
+                    <!-- Signal Card with Image -->
+                    <div class="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
+                        <div class="h-48 w-full bg-slate-100 relative">
+                            <img src="${signal.image}" onerror="this.src='${FALLBACK_IMG}'" class="w-full h-full object-cover" alt="Signal Context" />
+                            <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                            <div class="absolute bottom-4 left-6 flex items-center space-x-2">
+                                <i class="ph-fill ph-cell-signal-medium text-white text-xl"></i>
+                                <span class="text-white font-bold tracking-wider text-sm shadow-sm">INCOMING SIGNAL</span>
+                            </div>
+                        </div>
+                        <div class="p-6 md:p-8">
+                            <h2 class="text-2xl md:text-3xl font-semibold text-slate-800 leading-snug">"${signal.text}"</h2>
+                        </div>
+                    </div>
+
+                    <!-- Interactive Controls -->
+                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 shadow-xl space-y-8">
+                        
+                        <!-- Domain -->
+                        <div class="space-y-3">
+                            <label class="flex items-center text-sm font-bold text-slate-500 uppercase tracking-wider">
+                                <i class="ph ph-folder-open mr-2 text-lg"></i> Primary Domain
+                            </label>
+                            <div class="flex flex-wrap gap-2">
+                                ${DOMAINS.map(d => `
+                                    <button onclick="selectOption('domain', '${d}')" 
+                                        class="px-5 py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${state.selections.domain === d ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}">
+                                        ${d}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- Stage -->
+                        <div class="space-y-3">
+                            <label class="flex items-center text-sm font-bold text-slate-500 uppercase tracking-wider">
+                                <i class="ph ph-chart-line-up mr-2 text-lg"></i> Signal Stage
+                            </label>
+                            <div class="flex flex-wrap gap-2">
+                                ${STAGES.map(s => `
+                                    <button onclick="selectOption('stage', '${s}')" 
+                                        class="px-5 py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${state.selections.stage === s ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}">
+                                        ${s}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- Impact -->
+                        <div class="space-y-3">
+                            <label class="flex items-center text-sm font-bold text-slate-500 uppercase tracking-wider">
+                                <i class="ph ph-warning-circle mr-2 text-lg"></i> Potential Impact
+                            </label>
+                            <div class="flex flex-wrap gap-2">
+                                ${IMPACTS.map(i => `
+                                    <button onclick="selectOption('impact', '${i}')" 
+                                        class="px-5 py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${state.selections.impact === i ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}">
+                                        ${i}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- Confidence Slider -->
+                        <div class="space-y-5 pt-6 border-t border-slate-100">
+                            <div class="flex justify-between items-end">
+                                <label class="flex items-center text-sm font-bold text-slate-500 uppercase tracking-wider">
+                                    <i class="ph ph-target mr-2 text-lg"></i> Your Confidence
+                                </label>
+                                <span id="confidence-val" class="text-3xl font-black text-blue-600">${state.selections.confidence}%</span>
+                            </div>
+                            <div class="pt-2 pb-1 relative">
+                                <input type="range" min="20" max="100" step="5" value="${state.selections.confidence}" 
+                                    oninput="updateConfidence(this.value)"
+                                    class="w-full h-2 rounded-lg appearance-none outline-none">
+                            </div>
+                            <div class="flex justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                <span>Guessing (20%)</span>
+                                <span>Certain (100%)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onclick="submitEvaluation()" ${isComplete ? '' : 'disabled'} 
+                        class="w-full py-5 rounded-2xl font-bold text-xl transition-all shadow-xl ${isComplete ? 'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-blue-600/30 active:scale-95' : 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'}">
+                        Analyze Interpretation
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderFeedback() {
+            const signal = SIGNALS[state.currentIndex];
+            const lastHistory = state.history[state.history.length - 1];
+            const user = lastHistory.userSelections;
+            const isLast = state.currentIndex === SIGNALS.length - 1;
+
+            const makeRow = (attr) => {
+                const uVal = user[attr];
+                const eVal = signal.expert[attr];
+                const isMatch = uVal === eVal;
+                
+                // Colors based on match
+                const userColor = isMatch ? 'text-emerald-600 bg-emerald-50' : 'text-slate-600 bg-slate-50';
+                
+                return `
+                    <div class="grid grid-cols-3 p-4 border-b border-slate-100 last:border-0 items-center gap-4">
+                        <div class="text-slate-500 font-bold text-xs uppercase tracking-wider">${attr}</div>
+                        
+                        <!-- User Input -->
+                        <div class="flex items-center">
+                            <span class="px-3 py-1 rounded-md font-semibold text-sm ${userColor}">
+                                ${uVal}
+                            </span>
+                        </div>
+
+                        <!-- Expert Target -->
+                        <div class="flex items-center space-x-2">
+                            <span class="px-3 py-1 rounded-md font-bold text-sm bg-blue-50 text-blue-700 border border-blue-100">
+                                ${eVal}
+                            </span>
+                            ${isMatch ? '<i class="ph-fill ph-check-circle text-emerald-500 text-xl"></i>' : '<i class="ph-fill ph-x-circle text-rose-300 text-xl"></i>'}
+                        </div>
+                    </div>
+                `;
+            };
+
+            appDiv.innerHTML = `
+                <div class="w-full space-y-6 slide-in">
+                    
+                    <!-- Header Scores -->
+                    <div class="grid grid-cols-2 gap-4 md:gap-6">
+                        <div class="bg-white border border-slate-200 rounded-3xl p-6 flex flex-col items-center justify-center shadow-lg relative overflow-hidden">
+                            <div class="absolute top-0 w-full h-1 ${lastHistory.alignment >= 80 ? 'bg-emerald-400' : lastHistory.alignment >= 50 ? 'bg-amber-400' : 'bg-rose-400'}"></div>
+                            <span class="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2 flex items-center"><i class="ph ph-crosshair mr-1"></i> Alignment</span>
+                            <span class="text-5xl font-black text-slate-800">
+                                ${lastHistory.alignment}
+                            </span>
+                        </div>
+                        <div class="bg-white border border-slate-200 rounded-3xl p-6 flex flex-col items-center justify-center shadow-lg relative overflow-hidden">
+                            <div class="absolute top-0 w-full h-1 ${lastHistory.calibration >= 80 ? 'bg-blue-400' : 'bg-slate-300'}"></div>
+                            <span class="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2 flex items-center"><i class="ph ph-chart-bar mr-1"></i> Calibration</span>
+                            <span class="text-5xl font-black text-slate-800">
+                                ${lastHistory.calibration}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Comparison Grid -->
+                    <div class="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xl">
+                        <div class="grid grid-cols-3 bg-slate-50 p-4 border-b border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-widest gap-4">
+                            <div>Attribute</div>
+                            <div>Your Call</div>
+                            <div>Expert Frame</div>
+                        </div>
+                        ${makeRow('domain')}
+                        ${makeRow('stage')}
+                        ${makeRow('impact')}
+                    </div>
+
+                    <!-- Expert Reasoning Banner -->
+                    <div class="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-3xl p-6 md:p-8 shadow-lg">
+                        <div class="flex items-center space-x-3 text-indigo-700 mb-6">
+                            <div class="p-2 bg-indigo-100 rounded-lg"><i class="ph ph-brain text-2xl"></i></div>
+                            <h3 class="font-black text-xl tracking-tight">Expert Synthesis</h3>
+                        </div>
+                        <div class="space-y-6">
+                            <div class="bg-white/60 p-4 rounded-2xl border border-indigo-50/50">
+                                <p class="text-indigo-900 font-bold text-sm uppercase tracking-wider mb-2">The Ambiguity</p>
+                                <p class="text-indigo-800 italic text-lg leading-relaxed">"${signal.expert.ambiguity}"</p>
+                            </div>
+                            <div class="bg-white/60 p-4 rounded-2xl border border-indigo-50/50">
+                                <p class="text-indigo-900 font-bold text-sm uppercase tracking-wider mb-2">Strategic Meaning</p>
+                                <p class="text-slate-700 font-medium leading-relaxed">${signal.expert.reasoning}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onclick="nextSignal()" class="w-full py-5 bg-slate-900 hover:bg-blue-600 text-white rounded-2xl font-bold text-xl transition-all shadow-xl shadow-slate-900/20 active:scale-95 flex justify-center items-center">
+                        ${isLast ? 'View Final Report' : 'Next Signal'} <i class="ph ph-arrow-right ml-2 text-xl"></i>
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderResults() {
+            let totalAlign = 0, totalCalib = 0;
+            state.history.forEach(h => { totalAlign += h.alignment; totalCalib += h.calibration; });
+            const avgAlign = Math.round(totalAlign / state.history.length);
+            const avgCalib = Math.round(totalCalib / state.history.length);
+
+            appDiv.innerHTML = `
+                <div class="w-full space-y-8 fade-in">
+                    
+                    <div class="text-center space-y-4 pt-4">
+                        <div class="inline-block p-4 bg-emerald-100 text-emerald-600 rounded-full mb-2">
+                            <i class="ph-fill ph-check-circle text-5xl"></i>
+                        </div>
+                        <h2 class="text-4xl font-black text-slate-900 tracking-tight">Briefing Complete</h2>
+                        <p class="text-lg text-slate-500 font-medium">Your strategic foresight profile for today.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-4 shadow-xl relative overflow-hidden group hover:-translate-y-1 transition-transform">
+                            <div class="absolute inset-0 bg-gradient-to-b from-emerald-50/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="w-16 h-16 mx-auto bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center rotate-3">
+                                <i class="ph-fill ph-crosshair text-3xl"></i>
+                            </div>
+                            <div class="text-6xl font-black text-slate-800">${avgAlign}</div>
+                            <div class="text-sm font-bold text-emerald-600 uppercase tracking-widest">Avg Alignment</div>
+                            <p class="text-sm text-slate-500 leading-relaxed max-w-[250px] mx-auto">How closely your pattern recognition matches expert foresight.</p>
+                        </div>
+                        
+                        <div class="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-4 shadow-xl relative overflow-hidden group hover:-translate-y-1 transition-transform">
+                            <div class="absolute inset-0 bg-gradient-to-b from-blue-50/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="w-16 h-16 mx-auto bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center -rotate-3">
+                                <i class="ph-fill ph-chart-bar text-3xl"></i>
+                            </div>
+                            <div class="text-6xl font-black text-slate-800">${avgCalib}</div>
+                            <div class="text-sm font-bold text-blue-600 uppercase tracking-widest">Avg Calibration</div>
+                            <p class="text-sm text-slate-500 leading-relaxed max-w-[250px] mx-auto">Your judgment discipline. High scores mean you know when you are guessing.</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-xl">
+                        <h3 class="text-xl font-black text-slate-800 mb-6 flex items-center">
+                            <i class="ph ph-clock-counter-clockwise mr-2 text-slate-400"></i> Signal Log
+                        </h3>
+                        <div class="space-y-3">
+                            ${state.history.map((h, i) => `
+                                <div class="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                    <div class="flex items-center">
+                                        <div class="w-8 h-8 rounded-lg bg-slate-200 text-slate-500 flex items-center justify-center text-sm font-bold mr-3">
+                                            ${i+1}
+                                        </div>
+                                        <span class="text-slate-700 font-medium text-sm truncate max-w-[150px] md:max-w-xs">
+                                            ${SIGNALS[i].domain} / ${SIGNALS[i].stage}
+                                        </span>
+                                    </div>
+                                    <div class="flex space-x-2">
+                                        <span class="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-bold">A: ${h.alignment}</span>
+                                        <span class="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-sm font-bold">C: ${h.calibration}</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <button onclick="startGame()" class="w-full py-5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-xl transition-all flex justify-center items-center active:scale-95 shadow-sm">
+                        <i class="ph ph-arrows-clockwise mr-2 text-2xl"></i> Start New Session
+                    </button>
+                </div>
+            `;
+        }
+
+        // Initialize the app
+        render();
+    </script>
+</body>
 </html>
